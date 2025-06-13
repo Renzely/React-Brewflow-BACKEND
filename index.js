@@ -673,10 +673,16 @@ app.post("/export-inventory-towi", async (req, res) => {
 // INVENTORY HISTORY
 
 app.get("/inventoryHistory", async (req, res) => {
-  const { email } = req.query; // e.g., ?email=user@example.com
+  const { email } = req.query;
+
+  if (!email) {
+    return res
+      .status(400)
+      .json({ message: "Email query parameter is required." });
+  }
 
   try {
-    const inventories = await Inventory.find({ email: email }); // Use correct field
+    const inventories = await Inventory.find({ email: email });
     res.json(inventories);
   } catch (error) {
     console.error("❌ Error fetching inventory:", error);
