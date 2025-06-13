@@ -349,89 +349,70 @@ app.post("/attendance/time-out", async (req, res) => {
   }
 });
 
+// routes/attendance.js
 app.post("/get-attendance", async (req, res) => {
   try {
     const { email, startDate, endDate } = req.body;
-
-    let query = { email: email };
-
-    // If date range is provided, add date filtering
-    if (startDate && endDate) {
-      const start = new Date(startDate + "T00:00:00.000Z");
-      const end = new Date(endDate + "T23:59:59.999Z");
-
-      query.$or = [
-        {
-          date: {
-            $gte: start,
-            $lte: end,
-          },
-        },
-        {
-          // Also handle string dates
-          date: {
-            $regex: new RegExp(
-              startDate.replace(/-/g, "") + "|" + endDate.replace(/-/g, "")
-            ),
-          },
-        },
-      ];
+    if (!email) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email required" });
     }
 
-    // Fetch all attendance records for the user, sorted by date in ascending order
-    const attendanceRecords = await Attendance.find(query).sort({
-      date: 1,
-    });
+    // ------------------------------------------------------------------
+    // Build date range on createdAt (real Date field) -------------------
+    // ------------------------------------------------------------------
+    const range = {};
+    if (startDate) range.$gte = new Date(`${startDate}T00:00:00.000Z`);
+    if (endDate) range.$lte = new Date(`${endDate}T23:59:59.999Z`);
 
-    if (!attendanceRecords.length) {
+    const query = { email };
+    if (Object.keys(range).length) query.createdAt = range;
+
+    // ------------------------------------------------------------------
+    // Fetch & prepare response -----------------------------------------
+    // ------------------------------------------------------------------
+    const records = await Attendance.find(query).sort({ createdAt: 1 });
+
+    if (!records.length) {
       return res.json({ success: true, data: [] });
     }
 
-    // Log the raw data to inspect the time coordinates
-    console.log(
-      "Fetched Attendance Records:",
-      JSON.stringify(attendanceRecords, null, 2)
+    let counter = 1;
+    const flat = records.flatMap((att) =>
+      att.timeLogs.map((log) => ({
+        count: counter++,
+        email: att.email,
+        // keep the original human‑readable string for UI
+        date: att.date,
+
+        outlet: log.outlet ?? "",
+        timeIn: log.timeIn ?? null,
+        timeOut: log.timeOut ?? null,
+
+        hasTimedIn: Boolean(log.timeIn),
+        hasTimedOut: Boolean(log.timeOut),
+
+        timeInLocation: log.timeInLocation ?? "No location provided",
+        timeOutLocation: log.timeOutLocation ?? "No location provided",
+
+        timeInCoordinates: log.timeInCoordinates ?? {
+          latitude: 0,
+          longitude: 0,
+        },
+        timeOutCoordinates: log.timeOutCoordinates ?? {
+          latitude: 0,
+          longitude: 0,
+        },
+
+        timeInSelfieUrl: log.timeInSelfieUrl ?? "",
+        timeOutSelfieUrl: log.timeOutSelfieUrl ?? "",
+      }))
     );
 
-    // Flatten the data structure for frontend consumption
-    const result = [];
-    let count = 1;
-
-    attendanceRecords.forEach((attendance) => {
-      attendance.timeLogs.forEach((log) => {
-        // Log each time log coordinates
-        console.log("Time In Coordinates:", log.timeInCoordinates);
-        console.log("Time Out Coordinates:", log.timeOutCoordinates);
-
-        result.push({
-          count: count++,
-          email: attendance.email, // Add this line
-          date: attendance.date,
-          outlet: log.outlet || "",
-          timeIn: log.timeIn,
-          timeOut: log.timeOut,
-          hasTimedIn: !!log.timeIn,
-          hasTimedOut: !!log.timeOut,
-          timeInLocation: log.timeInLocation || "No location provided",
-          timeOutLocation: log.timeOutLocation || "No location provided",
-          timeInCoordinates: log.timeInCoordinates || {
-            latitude: 0,
-            longitude: 0,
-          },
-          timeOutCoordinates: log.timeOutCoordinates || {
-            latitude: 0,
-            longitude: 0,
-          },
-          timeInSelfieUrl: log.timeInSelfieUrl || "",
-          timeOutSelfieUrl: log.timeOutSelfieUrl || "",
-        });
-      });
-    });
-
-    console.log("Formatted Attendance Data:", JSON.stringify(result, null, 2));
-    res.json({ success: true, data: result });
-  } catch (error) {
-    console.error("Error in /get-attendance:", error);
+    res.json({ success: true, data: flat });
+  } catch (err) {
+    console.error("Error in /get-attendance:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -562,52 +543,46 @@ app.post("/retrieve-inventory-data", async (req, res) => {
 
 // DATE PICKER
 
+// routes/inventory.js (excerpt)
 app.post("/filter-date-range", async (req, res) => {
   const { startDate, endDate } = req.body;
   console.log("Filter range:", { startDate, endDate });
 
   try {
-    const inventoryInRange = await Inventory.find({
-      date: { $gte: startDate, $lte: endDate },
-    });
+    const start = new Date(`${startDate}T00:00:00.000Z`);
+    const end = new Date(`${endDate}T23:59:59.999Z`);
 
-    console.log("Found inventory in range:", inventoryInRange);
-    return res.status(200).json({ status: 200, data: inventoryInRange });
-  } catch (error) {
-    console.error("Error fetching inventory:", error);
-    return res.status(500).send({ error: "Internal Server Error" });
+    const inventoryInRange = await Inventory.aggregate([
+      { $addFields: { dateObj: { $toDate: "$date" } } },
+      { $match: { dateObj: { $gte: start, $lte: end } } },
+      { $sort: { dateObj: -1 } }, // newest first
+    ]);
+
+    console.log("Found inventory in range:", inventoryInRange.length);
+    res.json({ status: 200, data: inventoryInRange });
+  } catch (err) {
+    console.error("Error fetching inventory:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-app.post("/export-inventory-towi", async (req, res) => {
-  const { start, end } = req.body;
-
+// routes/inventory.js (excerpt)
+app.post("/export-inventory", async (req, res) => {
   try {
+    const { start, end } = req.body; // ms since epoch
+    const startDate = new Date(Number(start));
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(Number(end));
+    endDate.setHours(23, 59, 59, 999);
+
     const data = await Inventory.aggregate([
-      {
-        $match: {
-          $expr: {
-            $and: [
-              { $gte: [{ $toDate: "$date" }, new Date(start)] },
-              { $lt: [{ $toDate: "$date" }, new Date(end)] },
-            ],
-          },
-        },
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "email",
-          foreignField: "email",
-          as: "user_details",
-        },
-      },
-      {
-        $unwind: {
-          path: "$user_details",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
+      /* 1. Cast string -> real Date once */
+      { $addFields: { dateObj: { $toDate: "$date" } } },
+
+      /* 2. Date range */
+      { $match: { dateObj: { $gte: startDate, $lte: endDate } } },
+
+      /* 3. Flatten versions.SKU → status arrays */
       {
         $project: {
           date: 1,
@@ -616,57 +591,102 @@ app.post("/export-inventory-towi", async (req, res) => {
           weeksCovered: 1,
           month: 1,
           week: 1,
-          locked: 1,
-          versions: 1,
+          versions: {
+            $ifNull: ["$versions.SKU", {}],
+          },
+        },
+      },
+
+      /* 4. Turn {Carried, Not Carried, Delisted} object → key/value pairs */
+      {
+        $project: {
+          date: 1,
+          merchandiser: 1,
+          outlet: 1,
+          weeksCovered: 1,
+          month: 1,
+          week: 1,
+          statusArray: { $objectToArray: "$versions" },
+        },
+      },
+
+      /* 5. Unwind by status (Carried / Not Carried / Delisted) */
+      { $unwind: "$statusArray" },
+
+      /* 6. If missing, substitute empty array so next unwind is safe */
+      {
+        $addFields: {
+          skuList: { $ifNull: ["$statusArray.v", []] },
+          status: "$statusArray.k",
+        },
+      },
+
+      /* 7. Unwind each sku inside that status */
+      { $unwind: "$skuList" },
+
+      /* 8. Shape the flat document exactly how the front‑end expects */
+      {
+        $project: {
+          date: 1,
+          fullname: "$merchandiser",
+          outlet: 1,
+          weeksCovered: 1,
+          month: 1,
+          week: 1,
+          sku: "$skuList.sku",
+          skuCode: "$skuList.skuCode",
+          status: "$status",
+
+          beginning: {
+            $cond: [
+              { $eq: ["$status", "Carried"] },
+              "$skuList.beginningPCS",
+              {
+                $cond: [{ $eq: ["$status", "Not Carried"] }, "NC", "Delisted"],
+              },
+            ],
+          },
+          delivery: {
+            $cond: [
+              { $eq: ["$status", "Carried"] },
+              "$skuList.deliveryPCS",
+              "",
+            ],
+          },
+          ending: {
+            $cond: [{ $eq: ["$status", "Carried"] }, "$skuList.endingPCS", ""],
+          },
+          offtake: {
+            $cond: [{ $eq: ["$status", "Carried"] }, "$skuList.offtake", ""],
+          },
+          inventoryDays: {
+            $cond: [
+              { $eq: ["$status", "Carried"] },
+              "$skuList.inventoryDays",
+              "",
+            ],
+          },
+          expiryMonth: {
+            $cond: [
+              { $eq: ["$status", "Carried"] },
+              "$skuList.expiryMonths",
+              "",
+            ],
+          },
+          expiryQty: {
+            $cond: [{ $eq: ["$status", "Carried"] }, "$skuList.expiryQty", ""],
+          },
         },
       },
     ]);
 
-    const formatted = [];
+    /* 9. Add running counter  */
+    const formatted = data.map((doc, i) => ({ count: i + 1, ...doc }));
 
-    data.forEach((record, index) => {
-      ["SKU"].forEach((versionKey) => {
-        const version = record.versions?.[versionKey];
-        if (!version) return;
-
-        ["Carried", "Not Carried", "Delisted"].forEach((status) => {
-          const skuList = version[status] || [];
-
-          skuList.forEach((sku) => {
-            formatted.push({
-              count: formatted.length + 1,
-              date: record.date,
-              fullname: record.merchandiser || "N/A",
-              outlet: record.outlet,
-              weeksCovered: record.weeksCovered,
-              month: record.month,
-              week: record.week,
-              sku: sku.sku,
-              skuCode: sku.skuCode,
-              status,
-              beginning:
-                status === "Carried"
-                  ? sku.beginningPCS || 0
-                  : status === "Not Carried"
-                  ? "NC"
-                  : "Delisted",
-              delivery: status === "Carried" ? sku.deliveryPCS || 0 : "",
-              ending: status === "Carried" ? sku.endingPCS || 0 : "",
-              offtake: status === "Carried" ? sku.offtake || 0 : "",
-              inventoryDaysLevel:
-                status === "Carried" ? sku.inventoryDays || 0 : "",
-              expiryMonth: status === "Carried" ? sku.expiryMonths || "" : "",
-              expiryQty: status === "Carried" ? sku.expiryQty || 0 : "",
-            });
-          });
-        });
-      });
-    });
-
-    return res.send({ status: 200, data: formatted });
-  } catch (error) {
-    console.error("Error exporting inventory data:", error);
-    return res.status(500).send({ error: error.message });
+    res.json({ status: 200, data: formatted });
+  } catch (err) {
+    console.error("Error exporting inventory data:", err);
+    res.status(500).json({ status: 500, error: err.message });
   }
 });
 
