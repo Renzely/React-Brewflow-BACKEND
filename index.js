@@ -774,7 +774,63 @@ app.post("/register-user-admin", async (req, res) => {
   }
 });
 
-// ADMIN USER OTP
+// MOBILE FORGOT PASSWORD
+
+app.post("/forgot-password", async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Save OTP in the Otp collection with purpose "reset-password"
+    await Otp.create({
+      email,
+      otp,
+      purpose: "reset-password",
+      createdAt: new Date(),
+    });
+
+    // Send OTP via email
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Password Reset OTP",
+      text: `Your OTP is: ${otp}`,
+    });
+
+    res.status(200).json({ message: "OTP sent to email" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to send OTP" });
+  }
+});
+
+// RESET PASSWORD MOBILE
+
+app.post("/reset-password", async (req, res) => {
+  const { email, newPassword } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    res.status(200).json({ message: "Password has been reset successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Reset failed" });
+  }
+});
+
+// ADMIN USER & USER OTP
 
 app.post("/send-otp", async (req, res) => {
   const { email } = req.body;
@@ -800,6 +856,66 @@ app.post("/send-otp", async (req, res) => {
     return res.send({ status: 200, code: code });
   } catch (error) {
     return res.send({ error: error.message });
+  }
+});
+
+// ADMIN FORGOT PASSWORD
+
+app.put("/forgot-password-reset", async (req, res) => {
+  const { password, emailAddress } = req.body;
+
+  const encryptedPassword = await bcrypt.hash(password, 8);
+
+  console.log(emailAddress);
+  try {
+    await AdminUser.findOneAndUpdate(
+      { emailAddress: emailAddress },
+      { $set: { password: encryptedPassword } }
+    );
+    res.send({ status: 200, data: "Password updated" });
+  } catch (error) {
+    res.send({ status: "error", data: error });
+  }
+});
+
+app.post("/send-otp-forgotpassword", async (req, res) => {
+  const { emailAddress } = req.body;
+
+  const oldUser = await AdminUser.findOne({ emailAddress: emailAddress });
+
+  if (!oldUser) {
+    return res.status(404).json({ error: "Email does not exist" });
+  }
+
+  try {
+    var code = Math.floor(100000 + Math.random() * 900000);
+    code = String(code);
+    code = code.substring(0, 4);
+
+    const info = await transporter.sendMail({
+      from: {
+        name: "BMPower",
+        address: process.env.Email,
+      },
+      to: emailAddress,
+      subject: "OTP code",
+      html:
+        "<b>Your OTP code is</b> " +
+        code +
+        "<b>. Do not share this code with others.</b>",
+    });
+
+    return res.status(200).json({
+      status: 200,
+      data: info,
+      emailAddress: emailAddress,
+      code: code,
+    });
+  } catch (error) {
+    console.error(error);
+    return res
+      .status(500)
+      .json({ error: "Failed to send OTP. Please try again." });
   }
 });
 
