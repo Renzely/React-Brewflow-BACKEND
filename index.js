@@ -666,15 +666,15 @@ app.post("/export-inventory", async (req, res) => {
               "",
             ],
           },
-          expiryMonth: {
+          expiryMonths: {
             $cond: [
               { $eq: ["$status", "Carried"] },
               "$skuList.expiryMonths",
-              "",
+              [],
             ],
           },
           expiryQty: {
-            $cond: [{ $eq: ["$status", "Carried"] }, "$skuList.expiryQty", ""],
+            $cond: [{ $eq: ["$status", "Carried"] }, "$skuList.expiryQty", []],
           },
         },
       },
