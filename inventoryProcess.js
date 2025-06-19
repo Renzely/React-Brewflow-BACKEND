@@ -9,8 +9,8 @@ const skuSchema = new mongoose.Schema(
     endingPCS: Number,
     offtake: Number,
     inventoryDays: Number,
-    expiryMonths: String,
-    expiryQty: Number,
+    expiryMonths: [String],
+    expiryQty: [Number],
   },
   { _id: false }
 );
