@@ -13,6 +13,7 @@ const AdminUser = require("./adminUsers");
 const auth = require("./auth");
 const authMiddleware = require("./auth");
 const jwt = require("jsonwebtoken");
+const { DateTime } = require("luxon");
 require("dotenv").config();
 
 const nodemailer = require("nodemailer");
@@ -195,6 +196,10 @@ app.get("/attendance/history", async (req, res) => {
   }
 });
 
+const philippineNow = DateTime.now().setZone("Asia/Manila");
+const dateObj = philippineNow.startOf("day").toJSDate(); // e.g. 2025-06-20T00:00:00
+const timeInObj = philippineNow.toJSDate(); // current full timestamp
+
 // Route to handle time-in
 app.post("/attendance/time-in", async (req, res) => {
   try {
@@ -224,8 +229,12 @@ app.post("/attendance/time-in", async (req, res) => {
     }
 
     // Create Philippine timezone date objects
-    const dateObj = createPhilippineDate(date); // Use the new function
-    const timeInObj = parsePhilippineDateTimeAlternative(date, timeIn); // Use alternative method
+    // const dateObj = createPhilippineDate(date); // Use the new function
+    // const timeInObj = parsePhilippineDateTimeAlternative(date, timeIn); // Use alternative method
+
+    const philippineNow = DateTime.now().setZone("Asia/Manila");
+    const dateObj = philippineNow.startOf("day").toJSDate(); // e.g. 2025-06-20T00:00:00
+    const timeInObj = philippineNow.toJSDate(); // current full timestamp
 
     // Log for debugging
     console.log("Original timeIn string:", timeIn);
@@ -305,9 +314,9 @@ app.post("/attendance/time-out", async (req, res) => {
       return res.status(400).json({ error: "Missing required fields." });
     }
 
-    // Create Philippine timezone date objects
-    const dateObj = createPhilippineDate(date); // Use the new function
-    const timeOutObj = parsePhilippineDateTimeAlternative(date, timeOut); // Use alternative method
+    const philippineNow = DateTime.now().setZone("Asia/Manila");
+    const dateObj = philippineNow.startOf("day").toJSDate(); // e.g. 2025-06-20T00:00:00
+    const timeOutObj = philippineNow.toJSDate(); // current full timestamp
 
     // Log for debugging
     console.log("Original timeOut string:", timeOut);
