@@ -19,6 +19,12 @@ require("dotenv").config();
 const nodemailer = require("nodemailer");
 const Otp = require("./otp");
 
+const dayjs = require("dayjs");
+const utc = require("dayjs/plugin/utc");
+const timezone = require("dayjs/plugin/timezone");
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 // MongoDB Atlas connection
 const uri = process.env.uri;
 
